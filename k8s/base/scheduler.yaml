@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oficina-scheduler
+  labels:
+    app: oficina-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oficina-scheduler
+  template:
+    metadata:
+      labels:
+        app: oficina-scheduler
+    spec:
+      serviceAccountName: oficina-api
+      containers:
+        - name: scheduler
+          image: oficina-api:latest
+          command:
+            - sh
+            - -c
+            - |
+              while true; do
+                php artisan schedule:run --no-interaction --verbose
+                sleep 60
+              done
+          envFrom:
+            - configMapRef:
+                name: oficina-app-config
+            - secretRef:
+                name: oficina-app-secrets
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

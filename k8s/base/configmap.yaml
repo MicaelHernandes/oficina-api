@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oficina-app-config
+data:
+  APP_ENV: "production"
+  APP_DEBUG: "false"
+  APP_URL: "https://app.codefive.com.br"
+  LOG_CHANNEL: "json"
+  LOG_STACK: "json"
+  LOG_LEVEL: "info"
+  DB_CONNECTION: "pgsql"
+  DB_DATABASE: "oficina"
+  CACHE_STORE: "redis"
+  SESSION_DRIVER: "redis"
+  QUEUE_CONNECTION: "redis"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_METRICS_DB: "2"
+  METRICS_STORAGE: "redis"
+  JWT_ISSUER: "oficina-auth"
+  # Validação do JWT da Lambda ligada em produção (defense-in-depth).
+  GATEWAY_JWT_ENFORCE: "true"
+  FILESYSTEM_DISK: "local"
+  AWS_DEFAULT_REGION: "us-east-1"

@@ -1,0 +1,129 @@
+name: Deploy (produção)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: oficina
+  NAMESPACE: oficina
+
+jobs:
+  deploy:
+    name: build + push ECR + deploy EKS
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configura credenciais AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no ECR
+        id: ecr
+        run: |
+          ECR_URL=$(aws ssm get-parameter --name /oficina/ecr/repository_url --query Parameter.Value --output text)
+          echo "url=$ECR_URL" >> "$GITHUB_OUTPUT"
+          REGISTRY=$(echo "$ECR_URL" | cut -d/ -f1)
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+
+      - name: Build e push da imagem
+        env:
+          ECR_URL: ${{ steps.ecr.outputs.url }}
+        run: |
+          docker build -t "$ECR_URL:${GITHUB_SHA}" -t "$ECR_URL:latest" .
+          docker push "$ECR_URL:${GITHUB_SHA}"
+          docker push "$ECR_URL:latest"
+
+      - name: Instala kubectl e kustomize
+        run: |
+          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Configura kubeconfig
+        run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Garante o namespace
+        run: kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Cria/atualiza o Secret da aplicação (a partir do Secrets Manager)
+        env:
+          APP_KEY: ${{ secrets.LARAVEL_APP_KEY }}
+        run: |
+          DB_JSON=$(aws secretsmanager get-secret-value --secret-id /oficina/rds/master --query SecretString --output text)
+          JWT_SECRET=$(aws secretsmanager get-secret-value --secret-id /oficina/jwt/secret --query SecretString --output text)
+          DB_HOST=$(echo "$DB_JSON" | jq -r .host)
+          DB_PORT=$(echo "$DB_JSON" | jq -r .port)
+          DB_USER=$(echo "$DB_JSON" | jq -r .username)
+          DB_PASS=$(echo "$DB_JSON" | jq -r .password)
+
+          kubectl create secret generic oficina-app-secrets -n "$NAMESPACE" \
+            --from-literal=APP_KEY="$APP_KEY" \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=DB_HOST="$DB_HOST" \
+            --from-literal=DB_PORT="$DB_PORT" \
+            --from-literal=DB_USERNAME="$DB_USER" \
+            --from-literal=DB_PASSWORD="$DB_PASS" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Aponta a imagem no overlay e aplica
+        env:
+          ECR_URL: ${{ steps.ecr.outputs.url }}
+        run: |
+          cd k8s/overlays/prod
+          kustomize edit set image oficina-api="$ECR_URL:${GITHUB_SHA}"
+          kustomize build . | kubectl apply -f -
+
+      - name: Roda as migrations (Job)
+        env:
+          ECR_URL: ${{ steps.ecr.outputs.url }}
+        run: |
+          kubectl delete job oficina-migrate -n "$NAMESPACE" --ignore-not-found
+          sed "s#image: oficina-api:latest#image: $ECR_URL:${GITHUB_SHA}#" k8s/base/migrate-job.yaml \
+            | kubectl apply -n "$NAMESPACE" -f -
+          kubectl wait --for=condition=complete job/oficina-migrate -n "$NAMESPACE" --timeout=180s
+
+      - name: Aguarda rollout
+        run: |
+          kubectl rollout status deploy/oficina-api -n "$NAMESPACE" --timeout=240s
+          kubectl rollout status deploy/oficina-queue-worker -n "$NAMESPACE" --timeout=180s
+          kubectl rollout status deploy/oficina-scheduler -n "$NAMESPACE" --timeout=180s
+
+      - name: Atualiza o CNAME app.codefive.com.br na Cloudflare
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          ALB=$(kubectl get ingress oficina-api -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          if [ -z "$ALB" ]; then echo "ALB ainda não provisionado; pulando DNS."; exit 0; fi
+          ZONE_ID=$(curl -s -H "Authorization: Bearer $CF_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=codefive.com.br" | jq -r '.result[0].id')
+          REC_ID=$(curl -s -H "Authorization: Bearer $CF_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=app.codefive.com.br" | jq -r '.result[0].id // empty')
+          DATA="{\"type\":\"CNAME\",\"name\":\"app.codefive.com.br\",\"content\":\"$ALB\",\"ttl\":300,\"proxied\":false}"
+          if [ -n "$REC_ID" ]; then
+            curl -s -X PUT -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$REC_ID" -d "$DATA" >/dev/null
+          else
+            curl -s -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" -d "$DATA" >/dev/null
+          fi
+          echo "CNAME app.codefive.com.br -> $ALB"
+
+      - name: Status final
+        if: always()
+        run: |
+          kubectl get pods -n "$NAMESPACE" -o wide || true
+          kubectl get ingress -n "$NAMESPACE" || true
+          kubectl get hpa -n "$NAMESPACE" || true

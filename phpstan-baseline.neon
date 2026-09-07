@@ -1,0 +1,97 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Cannot access property \$value on string\.$#'
+			identifier: property.nonObject
+			count: 2
+			path: app/Http/Controllers/Auth/AuthController.php
+
+		-
+			message: '#^Constant L5_SWAGGER_CONST_HOST not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: app/OpenApi/OpenApiSpec.php
+
+		-
+			message: '#^Method Domain\\Catalog\\Infrastructure\\Repositories\\EloquentPartRepository\:\:paginate\(\) should return Illuminate\\Pagination\\LengthAwarePaginator&iterable\<Domain\\Catalog\\Domain\\Entities\\Part\> but returns Illuminate\\Pagination\\LengthAwarePaginator\<int, Domain\\Catalog\\Infrastructure\\Models\\PartModel\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Catalog/Infrastructure/Repositories/EloquentPartRepository.php
+
+		-
+			message: '#^Method Domain\\Catalog\\Infrastructure\\Repositories\\EloquentServiceRepository\:\:paginate\(\) should return Illuminate\\Pagination\\LengthAwarePaginator&iterable\<Domain\\Catalog\\Domain\\Entities\\Service\> but returns Illuminate\\Pagination\\LengthAwarePaginator\<int, Domain\\Catalog\\Infrastructure\\Models\\ServiceModel\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Catalog/Infrastructure/Repositories/EloquentServiceRepository.php
+
+		-
+			message: '#^Unsafe usage of new static\(\)\.$#'
+			identifier: new.static
+			count: 1
+			path: src/Core/Domain/Exceptions/DomainException.php
+
+		-
+			message: '#^Unsafe usage of new static\(\)\.$#'
+			identifier: new.static
+			count: 1
+			path: src/Core/Domain/Exceptions/NotFoundException.php
+
+		-
+			message: '#^Method Domain\\Customer\\Infrastructure\\Repositories\\EloquentCustomerRepository\:\:paginate\(\) should return Illuminate\\Pagination\\LengthAwarePaginator&iterable\<Domain\\Customer\\Domain\\Entities\\Customer\> but returns Illuminate\\Pagination\\LengthAwarePaginator\<int, Domain\\Customer\\Infrastructure\\Models\\CustomerModel\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Customer/Infrastructure/Repositories/EloquentCustomerRepository.php
+
+		-
+			message: '#^Method Domain\\Customer\\Infrastructure\\Repositories\\EloquentVehicleRepository\:\:paginateByCustomer\(\) should return Illuminate\\Pagination\\LengthAwarePaginator&iterable\<Domain\\Customer\\Domain\\Entities\\Vehicle\> but returns Illuminate\\Pagination\\LengthAwarePaginator\<int, Domain\\Customer\\Infrastructure\\Models\\VehicleModel\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Customer/Infrastructure/Repositories/EloquentVehicleRepository.php
+
+		-
+			message: '#^Method Domain\\Inventory\\Infrastructure\\Repositories\\EloquentPartRequestRepository\:\:paginate\(\) should return Illuminate\\Pagination\\LengthAwarePaginator&iterable\<Domain\\Inventory\\Domain\\Entities\\PartRequest\> but returns Illuminate\\Pagination\\LengthAwarePaginator\<int, Domain\\Inventory\\Infrastructure\\Models\\PartRequestModel\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Inventory/Infrastructure/Repositories/EloquentPartRequestRepository.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Workshop/Infrastructure/Repositories/EloquentOrderServiceRepository.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$notes\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Workshop/Infrastructure/Repositories/EloquentOrderServiceRepository.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$os_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Workshop/Infrastructure/Repositories/EloquentOrderServiceRepository.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$total_amount\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Workshop/Infrastructure/Repositories/EloquentOrderServiceRepository.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$total_parts\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Workshop/Infrastructure/Repositories/EloquentOrderServiceRepository.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$total_services\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Workshop/Infrastructure/Repositories/EloquentOrderServiceRepository.php
+
+		-
+			message: '#^Method Domain\\Workshop\\Infrastructure\\Repositories\\EloquentOrderServiceRepository\:\:paginate\(\) should return Illuminate\\Pagination\\LengthAwarePaginator&iterable\<Domain\\Workshop\\Domain\\Entities\\OrderService\> but returns Illuminate\\Pagination\\LengthAwarePaginator\<int, Domain\\Workshop\\Infrastructure\\Models\\OrderServiceModel\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Workshop/Infrastructure/Repositories/EloquentOrderServiceRepository.php

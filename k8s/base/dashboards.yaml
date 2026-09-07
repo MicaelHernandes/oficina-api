@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oficina-dashboards
+  labels:
+    grafana_dashboard: "1"
+data:
+  oficina-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "schemaVersion": 39,
+      "title": "Oficina — Visão Geral",
+      "tags": ["oficina"],
+      "time": {"from": "now-6h", "to": "now"},
+      "templating": {"list": []},
+      "panels": [
+        {
+          "type": "barchart", "title": "Volume de OS por status",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum by (status) (oficina_order_services)", "legendFormat": "{{status}}"}]
+        },
+        {
+          "type": "stat", "title": "Tempo médio de execução (s)",
+          "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "oficina_order_service_avg_execution_seconds"}]
+        },
+        {
+          "type": "stat", "title": "Uptime dos pods (up)",
+          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "avg(up{namespace=\"oficina\"})"}]
+        },
+        {
+          "type": "timeseries", "title": "Latência p95 por rota (s)",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "histogram_quantile(0.95, sum by (le, route) (rate(oficina_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{route}}"}]
+        },
+        {
+          "type": "timeseries", "title": "Requisições por status (rps)",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum by (status) (rate(oficina_http_request_duration_seconds_count[5m]))", "legendFormat": "{{status}}"}]
+        },
+        {
+          "type": "timeseries", "title": "Erros de integração (5xx/s)",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(rate(oficina_integration_failures_total[5m]))"}]
+        },
+        {
+          "type": "timeseries", "title": "CPU por pod",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"oficina\", container!=\"\"}[5m]))", "legendFormat": "{{pod}}"}]
+        },
+        {
+          "type": "timeseries", "title": "Memória por pod",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"oficina\", container!=\"\"})", "legendFormat": "{{pod}}"}]
+        }
+      ]
+    }

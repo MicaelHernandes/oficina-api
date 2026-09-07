@@ -1,0 +1,11 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon # erros pré-existentes do domínio (src/); código novo é checado
+
+parameters:
+    level: 3
+    paths:
+        - app
+        - src
+    excludePaths:
+        - app/Http/Middleware/PrometheusMetrics.php # métricas usam APIs dinâmicas do registry

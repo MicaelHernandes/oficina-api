@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oficina-queue-worker
+  labels:
+    app: oficina-queue-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oficina-queue-worker
+  template:
+    metadata:
+      labels:
+        app: oficina-queue-worker
+    spec:
+      serviceAccountName: oficina-api
+      containers:
+        - name: worker
+          image: oficina-api:latest
+          command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=90", "--sleep=3", "--max-time=3600"]
+          envFrom:
+            - configMapRef:
+                name: oficina-app-config
+            - secretRef:
+                name: oficina-app-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "php artisan queue:monitor default >/dev/null 2>&1 || exit 0"]
+            initialDelaySeconds: 30
+            periodSeconds: 60

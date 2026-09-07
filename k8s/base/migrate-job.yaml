@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: oficina-migrate
+  labels:
+    app: oficina-migrate
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: oficina-migrate
+    spec:
+      serviceAccountName: oficina-api
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: oficina-api:latest
+          command: ["sh", "-c", "php artisan migrate --force && php artisan config:cache && php artisan route:cache"]
+          envFrom:
+            - configMapRef:
+                name: oficina-app-config
+            - secretRef:
+                name: oficina-app-secrets

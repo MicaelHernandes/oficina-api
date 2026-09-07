@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oficina-api
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    # ALB compartilhado com o Grafana (repo 2) via IngressGroup.
+    alb.ingress.kubernetes.io/group.name: oficina-shared
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/healthcheck-path: /up
+    # certificate-arn omitido: o ALB Controller descobre o cert ACM que cobre
+    # app.codefive.com.br (SAN emitido pelo repo 2).
+spec:
+  ingressClassName: alb
+  rules:
+    - host: app.codefive.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oficina-api
+                port:
+                  number: 80

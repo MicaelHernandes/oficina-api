@@ -1,0 +1,39 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: oficina-api
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: oficina-api.rules
+      rules:
+        # Falha no processamento de OS / integrações (respostas 5xx).
+        - alert: OficinaIntegrationFailures
+          expr: sum(rate(oficina_integration_failures_total[5m])) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Falhas no processamento (5xx) na API da Oficina"
+            description: "Há respostas 5xx nas últimas janelas (possível falha no processamento de OS ou integração)."
+
+        # Latência p95 alta.
+        - alert: OficinaHighLatencyP95
+          expr: histogram_quantile(0.95, sum(rate(oficina_http_request_duration_seconds_bucket[5m])) by (le)) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Latência p95 acima de 1s"
+            description: "O p95 de latência da API está acima de 1s por mais de 10 minutos."
+
+        # Nenhuma réplica disponível (pod down).
+        - alert: OficinaApiDown
+          expr: kube_deployment_status_replicas_available{deployment="oficina-api", namespace="oficina"} < 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Deployment oficina-api sem réplicas disponíveis"
+            description: "O deployment oficina-api está sem pods prontos há mais de 2 minutos."
