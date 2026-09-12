@@ -42,7 +42,14 @@ Cada pod roda **php-fpm** (app) + **nginx** (sidecar, fastcgi). HPA por CPU/mem�
 
 ## Autenticação
 
-Rotas sensíveis passam pelo **Lambda Authorizer** (gateway) e, como defense-in-depth, pelo middleware `ValidateGatewayJwt` (mesma `JWT_SECRET`, ligado em produção via `GATEWAY_JWT_ENFORCE`). Ver [RFC-003](docs/rfc/RFC-003-auth-cpf-jwt.md). O painel do staff usa Sanctum.
+A API tem **dois públicos**, com credenciais distintas no header `Authorization` — por isso cada rota exige um deles, nunca os dois.
+
+| Público | Rotas | Autenticação | Caminho |
+|---|---|---|---|
+| **Cliente** | `/api/me/*` (dados, veículos e OS do próprio cliente) | JWT por **CPF**, emitido pela Lambda (repo 1) e revalidado pelo middleware `gateway.jwt` com a mesma `JWT_SECRET` | `api.codefive.com.br` (API Gateway + Lambda Authorizer) |
+| **Staff** | demais rotas (clientes, veículos, catálogo, estoque, OS, relatórios) | token **Sanctum** de `/api/auth/login` | `app.codefive.com.br` (ALB) |
+
+No portal do cliente o id vem do claim `sub` do token, nunca da URL, então um cliente não alcança dados de outro. Em produção o `GATEWAY_JWT_ENFORCE=true` liga a revalidação do JWT; em local/testes ele é passthrough. Ver [RFC-003](docs/rfc/RFC-003-auth-cpf-jwt.md).
 
 ## Observabilidade
 
