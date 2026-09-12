@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthController;
 use Domain\Catalog\Presentation\Controllers\PartController;
 use Domain\Catalog\Presentation\Controllers\ServiceController;
 use Domain\Customer\Presentation\Controllers\CustomerController;
+use Domain\Customer\Presentation\Controllers\CustomerPortalController;
 use Domain\Customer\Presentation\Controllers\VehicleController;
 use Domain\Inventory\Presentation\Controllers\PartRequestController;
 use Domain\Reports\Presentation\Controllers\ReportController;
@@ -43,10 +44,24 @@ Route::prefix('public')->group(function () {
     });
 });
 
-// ── Protected routes ─────────────────────────────────────────────────────
-// gateway.jwt valida o JWT emitido pela Lambda (defense-in-depth atrás do API
-// Gateway); é passthrough quando gateway.jwt.enforce=false (default local/testes).
-Route::middleware(['gateway.jwt', 'auth:sanctum'])->group(function () {
+// ── Portal do cliente (JWT por CPF) ──────────────────────────────────────
+// Autenticação via CPF exigida pelo Tech Challenge: a Lambda (repo 1) emite o
+// JWT, o Lambda Authorizer valida no API Gateway e o middleware gateway.jwt
+// revalida aqui com a mesma JWT_SECRET. O cliente só acessa os próprios dados
+// (id vem do claim `sub`, nunca da URL).
+Route::middleware('gateway.jwt')->prefix('me')->group(function () {
+    Route::get('/', [CustomerPortalController::class, 'show']);
+    Route::get('/vehicles', [CustomerPortalController::class, 'vehicles']);
+    Route::get('/order-services', [CustomerPortalController::class, 'orderServices']);
+    Route::get('/order-services/{id}', [CustomerPortalController::class, 'orderService']);
+});
+
+// ── Painel do staff (Sanctum) ────────────────────────────────────────────
+// Público distinto do portal do cliente: o staff autentica em /api/auth/login
+// e usa token Sanctum no header Authorization. Por isso estas rotas NÃO levam
+// gateway.jwt — os dois middlewares leem o mesmo header e um JWT de CPF não é
+// um token de staff (nenhum request conseguiria satisfazer os dois).
+Route::middleware('auth:sanctum')->group(function () {
 
     // Customers
     Route::apiResource('customers', CustomerController::class);
