@@ -4,6 +4,19 @@ metadata:
   name: oficina-nginx-config
 data:
   default.conf: |
+    # log_format só é válido no contexto http; conf.d/*.conf é incluído nele.
+    log_format json_combined escape=json '{'
+        '"time":"$time_iso8601",'
+        '"remote_addr":"$remote_addr",'
+        '"method":"$request_method",'
+        '"uri":"$request_uri",'
+        '"status":$status,'
+        '"bytes":$body_bytes_sent,'
+        '"rt":$request_time,'
+        '"request_id":"$http_x_request_id",'
+        '"amzn_trace":"$http_x_amzn_trace_id"'
+    '}';
+
     server {
         listen 80 default_server;
         server_name _;
@@ -11,17 +24,6 @@ data:
         index index.php;
         client_max_body_size 25m;
 
-        log_format json_combined escape=json '{'
-            '"time":"$time_iso8601",'
-            '"remote_addr":"$remote_addr",'
-            '"method":"$request_method",'
-            '"uri":"$request_uri",'
-            '"status":$status,'
-            '"bytes":$body_bytes_sent,'
-            '"rt":$request_time,'
-            '"request_id":"$http_x_request_id",'
-            '"amzn_trace":"$http_x_amzn_trace_id"'
-        '}';
         access_log /dev/stdout json_combined;
         error_log /dev/stderr warn;
 
