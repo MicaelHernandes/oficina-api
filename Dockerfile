@@ -46,6 +46,15 @@ RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoload
 
 COPY --from=assets /app/public/build ./public/build
 
+# Swagger/OpenAPI gerado no build: storage/ é efêmero por pod, e o
+# l5-swagger roda com generate_always=false. Sem isto, cada pod serviria a
+# documentação que existisse na sua própria camada de storage (ou nenhuma),
+# e um restart bastaria para voltar a divergir do código.
+# A geração só lê as anotações — não precisa de banco. O APP_KEY abaixo é
+# descartável, usado apenas para o artisan bootar durante o build.
+RUN APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= php artisan l5-swagger:generate \
+    && chown -R www-data:www-data storage/api-docs
+
 EXPOSE 9000
 
 CMD ["php-fpm", "--nodaemonize"]
