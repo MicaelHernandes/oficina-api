@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Domain\Workshop\Domain\Enums\OsStatus;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Prometheus\CollectorRegistry;
@@ -38,14 +39,17 @@ class MetricsController extends Controller
                 ['status'],
             );
 
-            $rows = DB::table('order_services')
+            $totals = DB::table('order_services')
                 ->select('status', DB::raw('count(*) as total'))
                 ->whereNull('deleted_at')
                 ->groupBy('status')
-                ->get();
+                ->pluck('total', 'status');
 
-            foreach ($rows as $row) {
-                $gauge->set((float) $row->total, [(string) $row->status]);
+            // Publica TODOS os status, inclusive os que não têm OS agora. O
+            // registry persiste no Redis: um status que caiu para zero e não
+            // fosse reescrito ficaria congelado no último valor.
+            foreach (OsStatus::cases() as $status) {
+                $gauge->set((float) ($totals[$status->value] ?? 0), [$status->value]);
             }
 
             // Tempo médio de execução (finished_at - started_at) em segundos.

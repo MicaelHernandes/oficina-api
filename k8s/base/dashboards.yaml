@@ -19,13 +19,13 @@ data:
           "type": "barchart", "title": "Volume de OS por status",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"expr": "sum by (status) (oficina_order_services)", "legendFormat": "{{status}}"}]
+          "targets": [{"expr": "max by (status) (oficina_order_services)", "legendFormat": "{{status}}"}]
         },
         {
           "type": "stat", "title": "Tempo médio de execução (s)",
           "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"expr": "oficina_order_service_avg_execution_seconds"}]
+          "targets": [{"expr": "max(oficina_order_service_avg_execution_seconds)"}]
         },
         {
           "type": "stat", "title": "Uptime dos pods (up)",
