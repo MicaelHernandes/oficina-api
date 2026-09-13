@@ -4,7 +4,16 @@ metadata:
   name: oficina-nginx-config
 data:
   default.conf: |
-    # log_format só é válido no contexto http; conf.d/*.conf é incluído nele.
+    # request_id do log = o X-Request-Id da RESPOSTA do PHP. O middleware
+    # RequestId sempre devolve um id (o enviado pelo cliente ou um UUID gerado),
+    # então o id que o cliente recebe é o mesmo que fica no log. Se a requisição
+    # não chegar ao PHP (sem upstream), cai no header de entrada.
+    map $upstream_http_x_request_id $log_request_id {
+        ""      $http_x_request_id;
+        default $upstream_http_x_request_id;
+    }
+
+    # log_format e map só são válidos no contexto http; conf.d/*.conf é incluído nele.
     log_format json_combined escape=json '{'
         '"time":"$time_iso8601",'
         '"remote_addr":"$remote_addr",'
@@ -13,7 +22,7 @@ data:
         '"status":$status,'
         '"bytes":$body_bytes_sent,'
         '"rt":$request_time,'
-        '"request_id":"$http_x_request_id",'
+        '"request_id":"$log_request_id",'
         '"amzn_trace":"$http_x_amzn_trace_id"'
     '}';
 
