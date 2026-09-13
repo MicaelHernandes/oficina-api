@@ -7,7 +7,7 @@ Aplicação principal (Laravel 13) do **Tech Challenge Fase 3 — Oficina Mecân
 | [oficina-k8s-infra](https://github.com/MicaelHernandes/oficina-k8s-infra) | VPC, EKS, ECR, ALB, DNS/TLS, monitoring, OIDC |
 | [oficina-db-infra](https://github.com/MicaelHernandes/oficina-db-infra) | RDS PostgreSQL gerenciado |
 | [oficina-auth-lambda](https://github.com/MicaelHernandes/oficina-auth-lambda) | Lambda de auth por CPF + API Gateway |
-| **oficina-api** (este) | Aplicação Laravel no EKS |
+| **oficina-api** (atual) | Aplicação Laravel no EKS |
 
 ## Tecnologias
 
