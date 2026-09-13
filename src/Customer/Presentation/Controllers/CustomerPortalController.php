@@ -17,12 +17,20 @@ use OpenApi\Attributes as OA;
  * próprios dados — o id vem do claim `sub` do token, nunca da URL.
  */
 #[OA\Tag(name: 'CustomerPortal', description: 'Portal do cliente (JWT por CPF, via API Gateway)')]
+#[OA\SecurityScheme(
+    securityScheme: 'cpfJwt',
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+    description: 'JWT do cliente, emitido pela Lambda em POST https://api.codefive.com.br/auth com {"cpf": "..."}. Válido por 15 minutos.'
+)]
 class CustomerPortalController extends Controller
 {
     #[OA\Get(
         path: '/api/me',
         summary: 'Dados do cliente autenticado pelo CPF',
         tags: ['CustomerPortal'],
+        security: [['cpfJwt' => []]],
         responses: [
             new OA\Response(response: 200, description: 'Dados do cliente'),
             new OA\Response(response: 401, description: 'Token ausente ou inválido'),
@@ -51,6 +59,7 @@ class CustomerPortalController extends Controller
         path: '/api/me/vehicles',
         summary: 'Veículos do cliente autenticado',
         tags: ['CustomerPortal'],
+        security: [['cpfJwt' => []]],
         responses: [
             new OA\Response(response: 200, description: 'Lista de veículos'),
             new OA\Response(response: 401, description: 'Token ausente ou inválido'),
@@ -84,6 +93,7 @@ class CustomerPortalController extends Controller
         path: '/api/me/order-services',
         summary: 'Ordens de serviço do cliente autenticado',
         tags: ['CustomerPortal'],
+        security: [['cpfJwt' => []]],
         responses: [
             new OA\Response(response: 200, description: 'Lista de OS do cliente'),
             new OA\Response(response: 401, description: 'Token ausente ou inválido'),
@@ -110,6 +120,7 @@ class CustomerPortalController extends Controller
         path: '/api/me/order-services/{id}',
         summary: 'Detalhe de uma OS do cliente autenticado',
         tags: ['CustomerPortal'],
+        security: [['cpfJwt' => []]],
         parameters: [new OA\Parameter(name: 'id', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
         responses: [
             new OA\Response(response: 200, description: 'Detalhe da OS'),
