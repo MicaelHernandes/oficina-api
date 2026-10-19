@@ -13,5 +13,8 @@ class NullMessageSource implements MessageSource
         return [];
     }
 
-    public function ack(ReceivedMessage $message): void {}
+    public function ack(ReceivedMessage $message): void
+    {
+        // Nada a confirmar: esta fonte nunca entrega mensagens.
+    }
 }

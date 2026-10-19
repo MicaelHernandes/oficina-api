@@ -13,6 +13,8 @@
 
 resource "aws_sns_topic" "events" {
   name = local.topic_name
+  # Criptografia em repouso com a chave gerenciada da AWS (sem custo de CMK).
+  kms_master_key_id = "alias/aws/sns"
 }
 
 resource "aws_sqs_queue" "dlq" {
