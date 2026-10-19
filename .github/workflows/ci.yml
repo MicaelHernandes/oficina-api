@@ -7,7 +7,7 @@ on:
 
 jobs:
   tests:
-    name: Pint + PHPStan + Pest
+    name: Pint + PHPStan + Pest (cobertura >= 80%)
     runs-on: ubuntu-latest
 
     services:
@@ -42,7 +42,9 @@ jobs:
         with:
           php-version: "8.4"
           extensions: pdo_pgsql, pgsql, redis, bcmath, intl, mbstring, zip, pcntl
-          coverage: none
+          coverage: pcov
+          # Sem isto o pcov instrumenta só src/ e ignora app/.
+          ini-values: pcov.directory=.
           tools: composer:v2
 
       - name: Cache Composer
@@ -69,8 +71,16 @@ jobs:
       - name: Migrations
         run: php artisan migrate --force
 
-      - name: Testes (Pest)
-        run: php artisan test
+      - name: Testes (Pest) com cobertura mínima de 80%
+        run: php artisan test --coverage --min=80 --coverage-clover=coverage.xml
+
+      - name: Publica o relatório de cobertura
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore
 
   build:
     name: Docker build (sem push)
@@ -89,3 +99,24 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  infra:
+    name: Terraform (fmt + validate)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+
+      - name: fmt
+        run: terraform fmt -check -recursive
+
+      - name: validate
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
