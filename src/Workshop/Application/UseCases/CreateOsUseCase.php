@@ -7,6 +7,8 @@ use Domain\Catalog\Domain\Repositories\ServiceRepositoryInterface;
 use Domain\Core\Domain\Exceptions\NotFoundException;
 use Domain\Customer\Domain\Repositories\CustomerRepositoryInterface;
 use Domain\Customer\Domain\Repositories\VehicleRepositoryInterface;
+use Domain\Saga\Application\CorrelationId;
+use Domain\Saga\Application\OsSagaOrchestrator;
 use Domain\Workshop\Application\Concerns\DispatchesOsEvents;
 use Domain\Workshop\Application\DTOs\CreateOsDTO;
 use Domain\Workshop\Domain\Entities\OrderService;
@@ -14,6 +16,7 @@ use Domain\Workshop\Domain\Entities\OsRequestedPartItem;
 use Domain\Workshop\Domain\Entities\OsRequestedServiceItem;
 use Domain\Workshop\Domain\Enums\OsStatus;
 use Domain\Workshop\Domain\Repositories\OrderServiceRepositoryInterface;
+use Illuminate\Support\Facades\DB;
 
 /**
  * AG: Criação da OS
@@ -22,6 +25,7 @@ use Domain\Workshop\Domain\Repositories\OrderServiceRepositoryInterface;
  * solicitados (sem preço) — o orçamento oficial ainda é gerado na etapa de
  * diagnóstico via GenerateBudgetUseCase.
  * Dispara OsStatusUpdatedEvent para notificar o cliente.
+ * Com a saga ligada, a abertura também inicia a saga da OS (mesma transação).
  */
 class CreateOsUseCase
 {
@@ -33,6 +37,7 @@ class CreateOsUseCase
         private readonly VehicleRepositoryInterface $vehicleRepository,
         private readonly ServiceRepositoryInterface $serviceRepository,
         private readonly PartRepositoryInterface $partRepository,
+        private readonly OsSagaOrchestrator $saga,
     ) {}
 
     public function execute(CreateOsDTO $dto): OrderService
@@ -57,7 +62,15 @@ class CreateOsUseCase
             requestedPartItems: $this->buildRequestedPartItems($dto->requestedParts),
         );
 
-        $saved = $this->osRepository->save($os);
+        $saved = DB::transaction(function () use ($os) {
+            $saved = $this->osRepository->save($os);
+
+            if (OsSagaOrchestrator::enabled()) {
+                $this->saga->start($saved, CorrelationId::current());
+            }
+
+            return $saved;
+        });
 
         $this->dispatchOsStatusUpdated($saved, OsStatus::Created, $this->customerRepository);
 

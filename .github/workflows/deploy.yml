@@ -29,6 +29,18 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # Infra própria do serviço: tópico SNS, fila SQS + DLQ e role IRSA.
+      - name: Terraform apply (infra/)
+        working-directory: infra
+        run: |
+          terraform init -input=false
+          terraform apply -auto-approve -input=false
+
       - name: Login no ECR
         id: ecr
         run: |
@@ -78,11 +90,25 @@ jobs:
             --from-literal=DB_PASSWORD="$DB_PASS" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Aponta a imagem no overlay e aplica
+      - name: Cria/atualiza o ConfigMap da mensageria (a partir do SSM)
+        run: |
+          TOPIC_ARN=$(aws ssm get-parameter --name /oficina/messaging/os-service/topic_arn --query Parameter.Value --output text)
+          QUEUE_URL=$(aws ssm get-parameter --name /oficina/messaging/os-service/queue_url --query Parameter.Value --output text)
+
+          kubectl create configmap oficina-messaging -n "$NAMESPACE" \
+            --from-literal=MESSAGING_PUBLISHER=sns \
+            --from-literal=MESSAGING_CONSUMER=sqs \
+            --from-literal=MESSAGING_TOPIC_ARN="$TOPIC_ARN" \
+            --from-literal=MESSAGING_QUEUE_URL="$QUEUE_URL" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Aponta a imagem e a role IRSA no overlay e aplica
         env:
           ECR_URL: ${{ steps.ecr.outputs.url }}
         run: |
+          IRSA_ROLE_ARN=$(aws ssm get-parameter --name /oficina/messaging/os-service/irsa_role_arn --query Parameter.Value --output text)
           cd k8s/overlays/prod
+          sed -i "s#IRSA_ROLE_ARN#$IRSA_ROLE_ARN#" serviceaccount-irsa.yaml
           kustomize edit set image oficina-api="$ECR_URL:${GITHUB_SHA}"
           kustomize build . | kubectl apply -f -
 
@@ -100,6 +126,7 @@ jobs:
           kubectl rollout status deploy/oficina-api -n "$NAMESPACE" --timeout=240s
           kubectl rollout status deploy/oficina-queue-worker -n "$NAMESPACE" --timeout=180s
           kubectl rollout status deploy/oficina-scheduler -n "$NAMESPACE" --timeout=180s
+          kubectl rollout status deploy/oficina-saga-worker -n "$NAMESPACE" --timeout=180s
 
       - name: Atualiza o CNAME app.codefive.com.br na Cloudflare
         env:

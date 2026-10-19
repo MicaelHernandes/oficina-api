@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Domain\Saga\Domain\Enums\SagaState;
 use Domain\Workshop\Domain\Enums\OsStatus;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -11,7 +12,8 @@ use Prometheus\RenderTextFormat;
 /**
  * Endpoint /metrics (formato texto do Prometheus). Além das métricas de
  * requisição coletadas pelo middleware, expõe um gauge com o volume de OS
- * por status (calculado no momento do scrape) para os dashboards de negócio.
+ * por status (calculado no momento do scrape) para os dashboards de negócio,
+ * e o estado das sagas e do outbox para acompanhar o fluxo distribuído.
  */
 class MetricsController extends Controller
 {
@@ -20,6 +22,7 @@ class MetricsController extends Controller
     public function __invoke(): Response
     {
         $this->collectOrderServiceGauges();
+        $this->collectSagaGauges();
 
         $renderer = new RenderTextFormat;
         $body = $renderer->render($this->registry->getMetricFamilySamples());
@@ -66,6 +69,35 @@ class MetricsController extends Controller
             }
         } catch (\Throwable $e) {
             // Sem banco disponível: expõe só as métricas de requisição.
+        }
+    }
+
+    private function collectSagaGauges(): void
+    {
+        $ns = config('metrics.namespace', 'oficina');
+
+        try {
+            $sagas = $this->registry->getOrRegisterGauge(
+                $ns,
+                'sagas',
+                'Quantidade de sagas de OS por estado',
+                ['state'],
+            );
+
+            $totals = DB::table('saga_instances')
+                ->select('state', DB::raw('count(*) as total'))
+                ->groupBy('state')
+                ->pluck('total', 'state');
+
+            foreach (SagaState::cases() as $state) {
+                $sagas->set((float) ($totals[$state->value] ?? 0), [$state->value]);
+            }
+
+            $this->registry
+                ->getOrRegisterGauge($ns, 'outbox_pending_messages', 'Mensagens do outbox ainda não publicadas', [])
+                ->set((float) DB::table('outbox_messages')->whereNull('published_at')->count(), []);
+        } catch (\Throwable $e) {
+            // Sem banco disponível: segue sem as métricas da saga.
         }
     }
 }

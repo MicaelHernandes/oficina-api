@@ -1,0 +1,53 @@
+# Workers da saga (Fase 4), num único pod para economizar recursos do nó:
+# - relay: publica o outbox no SNS (`saga:relay`)
+# - consumer: consome a fila SQS e avança a saga (`saga:consume`)
+# Ambos saem após --max-time e o kubelet reinicia (evita vazamento de memória).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oficina-saga-worker
+  labels:
+    app: oficina-saga-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oficina-saga-worker
+  template:
+    metadata:
+      labels:
+        app: oficina-saga-worker
+    spec:
+      # IRSA: a role (infra/) é anotada no ServiceAccount pelo overlay.
+      serviceAccountName: oficina-api
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: relay
+          image: oficina-api:latest
+          command: ["php", "artisan", "saga:relay", "--max-time=3600"]
+          envFrom: &env
+            - configMapRef:
+                name: oficina-app-config
+            - secretRef:
+                name: oficina-app-secrets
+            - configMapRef:
+                name: oficina-messaging
+                optional: true
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "96Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+        - name: consumer
+          image: oficina-api:latest
+          command: ["php", "artisan", "saga:consume", "--max-time=3600"]
+          envFrom: *env
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "96Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

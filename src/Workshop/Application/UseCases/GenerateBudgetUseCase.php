@@ -7,6 +7,8 @@ use Domain\Catalog\Domain\Repositories\ServiceRepositoryInterface;
 use Domain\Core\Domain\Exceptions\DomainException;
 use Domain\Core\Domain\Exceptions\NotFoundException;
 use Domain\Customer\Domain\Repositories\CustomerRepositoryInterface;
+use Domain\Saga\Application\CorrelationId;
+use Domain\Saga\Application\OsSagaOrchestrator;
 use Domain\Workshop\Application\Concerns\DispatchesOsEvents;
 use Domain\Workshop\Application\DTOs\GenerateBudgetDTO;
 use Domain\Workshop\Domain\Entities\Budget;
@@ -14,10 +16,13 @@ use Domain\Workshop\Domain\Entities\OrderService;
 use Domain\Workshop\Domain\Entities\OsPartItem;
 use Domain\Workshop\Domain\Entities\OsServiceItem;
 use Domain\Workshop\Domain\Repositories\OrderServiceRepositoryInterface;
+use Illuminate\Support\Facades\DB;
 
 /**
  * AG: Orçamento
  * Mecânico inclui serviços e peças → sistema gera orçamento → IN_ANALYSIS → PENDING_APPROVAL
+ * Com a saga ligada, o orçamento segue para o Billing Service (aprovação e
+ * cobrança do cliente) na mesma transação.
  */
 class GenerateBudgetUseCase
 {
@@ -28,6 +33,7 @@ class GenerateBudgetUseCase
         private readonly ServiceRepositoryInterface $serviceRepository,
         private readonly PartRepositoryInterface $partRepository,
         private readonly CustomerRepositoryInterface $customerRepository,
+        private readonly OsSagaOrchestrator $saga,
     ) {}
 
     public function execute(GenerateBudgetDTO $dto): OrderService
@@ -78,7 +84,16 @@ class GenerateBudgetUseCase
         $previous = $os->getStatus();
         $os->generateBudget($budget, $serviceItems, $partItems);
 
-        $saved = $this->osRepository->save($os);
+        $saved = DB::transaction(function () use ($os) {
+            $saved = $this->osRepository->save($os);
+
+            if (OsSagaOrchestrator::enabled()) {
+                $this->saga->requestBudget($saved, CorrelationId::current());
+            }
+
+            return $saved;
+        });
+
         $this->dispatchOsStatusUpdated($saved, $previous, $this->customerRepository);
 
         return $saved;

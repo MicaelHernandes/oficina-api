@@ -1,0 +1,2 @@
+# Depois que a infra do Billing e do Execution criar os tópicos deles:
+# consumed_topics = ["oficina-billing-events", "oficina-execution-events"]
