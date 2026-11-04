@@ -31,3 +31,4 @@ infra/.terraform/
 *.tfvars
 !infra/terraform.tfvars.example
 coverage.xml
+/build

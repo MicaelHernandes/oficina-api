@@ -7,7 +7,7 @@ on:
 
 jobs:
   tests:
-    name: Pint + PHPStan + Pest (cobertura >= 80%)
+    name: Pint + PHPStan + Pest (cobertura >= 80%) + BDD
     runs-on: ubuntu-latest
 
     services:
@@ -73,6 +73,20 @@ jobs:
 
       - name: Testes (Pest) com cobertura mínima de 80%
         run: php artisan test --coverage --min=80 --coverage-clover=coverage.xml
+
+      # BDD: fluxo completo da saga em Gherkin (features/), contra o app e o Postgres.
+      - name: BDD (Behat)
+        run: |
+          mkdir -p build/behat
+          vendor/bin/behat --strict -f progress -o std -f junit -o build/behat
+
+      - name: Publica o relatório do BDD
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: behat
+          path: build/behat
+          if-no-files-found: ignore
 
       - name: Publica o relatório de cobertura
         if: always()
