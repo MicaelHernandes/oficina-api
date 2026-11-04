@@ -43,4 +43,5 @@ Diagnosis ──▶ AwaitingApproval ──▶ AwaitingPayment ──▶ Awaitin
 - (+) `GET /api/order-services/{id}/saga` mostra o estado e o histórico. O `correlation_id` (X-Request-Id da abertura) segue em todas as mensagens e logs, para rastrear a OS no Loki. O Prometheus expõe `oficina_sagas{state}` e `oficina_outbox_pending_messages`.
 - (−) O OS Service vira ponto central do fluxo: se ele cair, a saga pausa, mas as mensagens esperam na fila (até 4 dias) e o outbox retoma a publicação.
 - (−) Consistência eventual: entre o pagamento confirmado e a OS em execução há uma janela em que os serviços divergem.
-- A flag `SAGA_ENABLED` mantém o fluxo local da Fase 3 até o Billing e o Execution entrarem no ar. Com a saga ligada, as rotas locais de aprovação e execução respondem 422.
+- A flag `SAGA_ENABLED` liga a saga (ligada em produção). Com ela desligada, vale o fluxo local da Fase 3. Com a saga ligada, as rotas locais de aprovação e execução respondem 422.
+- Cada assinatura SNS → SQS é criada pela `infra/` de quem já encontra o outro lado existente: a fila do OS Service aceita os tópicos `oficina-*-events`, e o Billing e o Execution assinam neles. Não há ordem de deploy entre os repositórios além de subir o OS Service antes.
