@@ -103,6 +103,17 @@ Como rodar:
 
 O Swagger de cada serviço continua em `/api/documentation`, `/billing/api/documentation` e `/execution/api/documentation`.
 
+## Entrega (PDF da Fase 4)
+
+[`docs/entrega/Fase4-TechChallenge-Oficina.pdf`](docs/entrega/Fase4-TechChallenge-Oficina.pdf) traz:
+
+- participantes, links dos repositórios e do vídeo;
+- o diagrama geral da arquitetura (microsserviços, bancos e mensageria);
+- a divisão dos serviços e as tecnologias, com as justificativas;
+- a estratégia de Saga orquestrada, com passos, compensações e garantias.
+
+O PDF é gerado por [`docs/entrega/gerar_pdf.py`](docs/entrega/gerar_pdf.py). Para atualizar, preencha `PARTICIPANTES` e `VIDEO_URL` no topo do script e rode o comando do docstring (Docker + reportlab).
+
 ## Documentação
 
 - **ADRs** — [`docs/adr`](docs/adr): comunicação REST+JSON, HPA, observabilidade (Prometheus vs Datadog/New Relic), ambiente único, saga orquestrada com SNS/SQS.
