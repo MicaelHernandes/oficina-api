@@ -11,6 +11,7 @@ use Domain\Saga\Domain\Messages\Envelope;
 use Domain\Saga\Domain\Messages\MessageType;
 use Domain\Saga\Infrastructure\Models\OutboxMessageModel;
 use Domain\Saga\Infrastructure\Models\SagaInstanceModel;
+use Domain\Workshop\Application\Mail\OsStatusUpdatedMail;
 use Domain\Workshop\Infrastructure\Models\OrderServiceModel;
 use Illuminate\Support\Facades\Mail;
 
@@ -351,6 +352,18 @@ describe('Saga da OS (orquestrada)', function () {
         $this->actingAs($this->attendant, 'sanctum')
             ->getJson('/api/order-services/999999/saga')
             ->assertNotFound();
+    });
+
+    it('não manda os links de aprovação do OS Service (a decisão é do Billing)', function () {
+        ($this->generateBudget)()->assertOk();
+
+        Mail::assertSent(OsStatusUpdatedMail::class, function (OsStatusUpdatedMail $mail) {
+            $html = $mail->render();
+
+            return $mail->event->orderService->getStatus()->value === 'pending_approval'
+                && ! str_contains($html, 'approve-budget')
+                && ! str_contains($html, 'reject-budget');
+        });
     });
 
     it('não cria saga com a saga desligada', function () {

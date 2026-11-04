@@ -32,7 +32,10 @@ class OsStatusUpdatedMail extends Mailable
 
     public function content(): Content
     {
-        $requiresDecision = in_array($this->event->orderService->getStatus(), self::DECISION_STATUSES, true);
+        // Com a saga ligada, a decisão do orçamento é do Billing Service, que envia
+        // os próprios links assinados; este e-mail só informa o status.
+        $requiresDecision = ! config('messaging.saga_enabled')
+            && in_array($this->event->orderService->getStatus(), self::DECISION_STATUSES, true);
 
         return new Content(
             view: 'mail.workshop.os-status-updated',
