@@ -25,7 +25,7 @@ Repositório 4 de 4 do Tech Challenge Fase 3. Aplicação Laravel 13 (DDD em
   Ingress ALB, ServiceMonitor, PrometheusRule, dashboards).
 - `src/Saga` — saga orquestrada da OS (Fase 4): `OsSagaOrchestrator`, outbox
   (`saga:relay`), inbox + consumidor SQS (`saga:consume`), `saga:timeouts`.
-  Ligada por `SAGA_ENABLED`; ver ADR-005.
+  Ligada por `SAGA_ENABLED` (true em produção, false em local/testes); ver ADR-005.
 - `features/` + `tests/Behat/SagaContext.php` — BDD (Behat 4, Gherkin em
   português) do fluxo completo da saga; `vendor/bin/behat` no CI.
 - `infra/` — Terraform do serviço (SNS, SQS + DLQ, IRSA), aplicado no `deploy.yml`.

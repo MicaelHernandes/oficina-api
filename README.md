@@ -81,7 +81,7 @@ O OS Service roda de verdade: HTTP, orquestrador, outbox e Postgres. O Billing e
 
 **Rastreamento:** o `X-Request-Id` da abertura da OS vira o `correlation_id` da saga e segue em todas as mensagens e logs (filtre por `correlation_id` no Loki). O `/metrics` expõe `oficina_sagas{state}` e `oficina_outbox_pending_messages`.
 
-**Ativação:** `SAGA_ENABLED=false` mantém o fluxo local da Fase 3 até o Billing e o Execution estarem no ar. Com a saga ligada, aprovação e recusa do orçamento e início e fim da execução chegam por evento, e as rotas locais dessas etapas respondem 422. A fila do OS Service aceita os tópicos `oficina-*-events` da conta; o Billing e o Execution criam, na própria `infra/`, a assinatura dos seus tópicos nessa fila. Por isso não há ordem de deploy a respeitar entre os repositórios.
+**Ativação:** em produção a saga está ligada (`SAGA_ENABLED: "true"` em `k8s/base/configmap.yaml`). Com `false`, o OS Service volta ao fluxo local da Fase 3, que é o padrão em local e nos testes. Com a saga ligada, aprovação e recusa do orçamento e início e fim da execução chegam por evento, e as rotas locais dessas etapas respondem 422. A fila do OS Service aceita os tópicos `oficina-*-events` da conta; o Billing e o Execution criam, na própria `infra/`, a assinatura dos seus tópicos nessa fila. Por isso não há ordem de deploy a respeitar entre os repositórios.
 
 ## Collection Postman (demonstração)
 
