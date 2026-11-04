@@ -23,3 +23,7 @@ data:
   GATEWAY_JWT_ENFORCE: "true"
   FILESYSTEM_DISK: "local"
   AWS_DEFAULT_REGION: "us-east-1"
+  # Saga (Fase 4). Fica desligada até o Billing e o Execution Service estarem
+  # no ar; o tópico, a fila e os drivers vêm do ConfigMap oficina-messaging.
+  SAGA_ENABLED: "false"
+  MESSAGING_SOURCE: "oficina-os-service"

@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# Outputs + SSM (/oficina/messaging/...): a pipeline lê para configurar os
+# pods; a infra do Billing/Execution lê o ARN do tópico (para assinar os
+# comandos) e o da fila (para entregar os eventos).
+# ---------------------------------------------------------------------------
+
+output "topic_arn" {
+  description = "ARN do tópico SNS do OS Service."
+  value       = aws_sns_topic.events.arn
+}
+
+output "queue_url" {
+  description = "URL da fila SQS do OS Service."
+  value       = aws_sqs_queue.inbox.id
+}
+
+output "dlq_url" {
+  description = "URL da DLQ do OS Service."
+  value       = aws_sqs_queue.dlq.id
+}
+
+output "irsa_role_arn" {
+  description = "Role IRSA do ServiceAccount oficina-api."
+  value       = aws_iam_role.irsa.arn
+}
+
+resource "aws_ssm_parameter" "topic_arn" {
+  name  = "/oficina/messaging/${var.service_name}/topic_arn"
+  type  = "String"
+  value = aws_sns_topic.events.arn
+}
+
+resource "aws_ssm_parameter" "queue_url" {
+  name  = "/oficina/messaging/${var.service_name}/queue_url"
+  type  = "String"
+  value = aws_sqs_queue.inbox.id
+}
+
+# A infra do Billing e do Execution assina os próprios tópicos nesta fila.
+resource "aws_ssm_parameter" "queue_arn" {
+  name  = "/oficina/messaging/${var.service_name}/queue_arn"
+  type  = "String"
+  value = aws_sqs_queue.inbox.arn
+}
+
+resource "aws_ssm_parameter" "irsa_role_arn" {
+  name  = "/oficina/messaging/${var.service_name}/irsa_role_arn"
+  type  = "String"
+  value = aws_iam_role.irsa.arn
+}

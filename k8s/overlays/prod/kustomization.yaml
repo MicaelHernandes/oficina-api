@@ -8,6 +8,9 @@ resources:
   - ../../base
   - ingress.yaml
 
+patches:
+  - path: serviceaccount-irsa.yaml
+
 # A pipeline substitui a imagem: kustomize edit set image oficina-api=<ECR>:<sha>
 images:
   - name: oficina-api
