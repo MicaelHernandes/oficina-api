@@ -28,15 +28,6 @@ variable "k8s_service_account" {
   default     = "oficina-api"
 }
 
-variable "consumed_topics" {
-  description = <<-EOT
-    Tópicos SNS de outros serviços cujos eventos o OS Service consome. Cada
-    serviço cria o próprio tópico; inclua aqui depois que a infra dele for
-    aplicada (a assinatura falha se o tópico não existir).
-  EOT
-  type        = list(string)
-  default     = []
-}
 
 variable "max_receive_count" {
   description = "Tentativas antes de a mensagem ir para a DLQ."

@@ -404,8 +404,9 @@ def build():
         "<b>Síncrona (REST/JSON):</b> só nas bordas — staff e cliente falam com cada serviço pelo ALB; o Billing chama a API do "
         "Mercado Pago e recebe o webhook. Nenhum serviço chama outro por HTTP no fluxo da saga.",
         "<b>Assíncrona (SNS → SQS):</b> cada serviço publica no próprio tópico e consome a própria fila. As filas do Billing e do "
-        "Execution assinam o tópico do OS Service com filter policy (<i>billing.*</i> / <i>execution.*</i>); a fila do OS Service "
-        "assina os tópicos dos dois.",
+        "Execution assinam o tópico do OS Service com filter policy (<i>billing.*</i> / <i>execution.*</i>); os tópicos dos dois "
+        "entregam na fila do OS Service, que aceita o padrão <i>oficina-*-events</i>. Cada assinatura nasce na <i>infra/</i> de "
+        "quem precisa dela já existente, então não há ordem de deploy entre os repositórios.",
         "<b>Envelope comum:</b> id, type, saga_id, correlation_id, os_id, source, occurred_at e payload; tópicos criptografados (KMS) "
         "e acesso por IRSA, sem chaves estáticas.",
     ])

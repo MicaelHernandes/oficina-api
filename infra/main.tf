@@ -5,8 +5,8 @@
 #   da OS, publicados pelo outbox (`saga:relay`). Cada serviço assina com
 #   filter policy pelo atributo `type` (ex.: prefixo `billing.`).
 # - Fila SQS `oficina-os-service` + DLQ: recebe os eventos dos tópicos do
-#   Billing e do Execution (`saga:consume`). Raw delivery: o corpo é o
-#   envelope JSON.
+#   Billing e do Execution (`saga:consume`). As assinaturas ficam na infra de
+#   cada um (raw delivery: o corpo é o envelope JSON).
 # - Role IRSA do ServiceAccount `oficina-api`: publica no tópico e consome a
 #   fila, sem chaves estáticas.
 # ---------------------------------------------------------------------------
@@ -43,10 +43,9 @@ resource "aws_sqs_queue_redrive_allow_policy" "dlq" {
   })
 }
 
-# Só os tópicos assinados podem entregar na fila.
+# Só os tópicos de eventos dos serviços da oficina podem entregar na fila. As
+# assinaturas (SNS → esta fila) são criadas pela infra de quem publica.
 data "aws_iam_policy_document" "inbox" {
-  count = length(local.consumed_topic_arns) > 0 ? 1 : 0
-
   statement {
     effect    = "Allow"
     actions   = ["sqs:SendMessage"]
@@ -58,27 +57,16 @@ data "aws_iam_policy_document" "inbox" {
     }
 
     condition {
-      test     = "ArnEquals"
+      test     = "ArnLike"
       variable = "aws:SourceArn"
-      values   = local.consumed_topic_arns
+      values   = [local.event_topics_pattern]
     }
   }
 }
 
 resource "aws_sqs_queue_policy" "inbox" {
-  count = length(local.consumed_topic_arns) > 0 ? 1 : 0
-
   queue_url = aws_sqs_queue.inbox.id
-  policy    = data.aws_iam_policy_document.inbox[0].json
-}
-
-resource "aws_sns_topic_subscription" "consumed" {
-  for_each = toset(local.consumed_topic_arns)
-
-  topic_arn            = each.value
-  protocol             = "sqs"
-  endpoint             = aws_sqs_queue.inbox.arn
-  raw_message_delivery = true
+  policy    = data.aws_iam_policy_document.inbox.json
 }
 
 # --- IRSA -----------------------------------------------------------------

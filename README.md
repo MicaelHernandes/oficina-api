@@ -67,7 +67,7 @@ sequenceDiagram
 | `inbox_messages` + `saga:consume` | Consome a fila SQS sem processar a mesma mensagem duas vezes |
 | `saga:timeouts` (scheduler, 1/min) | Compensa pagamento ou início de execução não confirmados no prazo |
 | `GET /api/order-services/{id}/saga` | Estado e histórico da saga (staff) |
-| `infra/` (Terraform) | Tópico `oficina-os-events`, fila `oficina-os-service` + DLQ, role IRSA |
+| `infra/` (Terraform) | Tópico `oficina-os-events`, fila `oficina-os-service` + DLQ (aceita os tópicos `oficina-*-events`), role IRSA |
 
 **BDD:** o fluxo completo da saga está descrito em Gherkin (português) em [`features/saga_ordem_de_servico.feature`](features/saga_ordem_de_servico.feature) e roda com **Behat** no CI (`vendor/bin/behat`). Os passos ficam em [`tests/Behat/SagaContext.php`](tests/Behat/SagaContext.php). São cinco cenários:
 
@@ -81,7 +81,7 @@ O OS Service roda de verdade: HTTP, orquestrador, outbox e Postgres. O Billing e
 
 **Rastreamento:** o `X-Request-Id` da abertura da OS vira o `correlation_id` da saga e segue em todas as mensagens e logs (filtre por `correlation_id` no Loki). O `/metrics` expõe `oficina_sagas{state}` e `oficina_outbox_pending_messages`.
 
-**Ativação:** `SAGA_ENABLED=false` mantém o fluxo local da Fase 3 até o Billing e o Execution estarem no ar. Com a saga ligada, aprovação e recusa do orçamento e início e fim da execução chegam por evento, e as rotas locais dessas etapas respondem 422. Para receber os eventos, inclua os tópicos dos outros serviços em `consumed_topics` (`infra/`).
+**Ativação:** `SAGA_ENABLED=false` mantém o fluxo local da Fase 3 até o Billing e o Execution estarem no ar. Com a saga ligada, aprovação e recusa do orçamento e início e fim da execução chegam por evento, e as rotas locais dessas etapas respondem 422. A fila do OS Service aceita os tópicos `oficina-*-events` da conta; o Billing e o Execution criam, na própria `infra/`, a assinatura dos seus tópicos nessa fila. Por isso não há ordem de deploy a respeitar entre os repositórios.
 
 ## Collection Postman (demonstração)
 

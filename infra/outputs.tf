@@ -1,6 +1,7 @@
 # ---------------------------------------------------------------------------
 # Outputs + SSM (/oficina/messaging/...): a pipeline lê para configurar os
-# pods, e a infra do Billing/Execution lê o ARN do tópico para assinar.
+# pods; a infra do Billing/Execution lê o ARN do tópico (para assinar os
+# comandos) e o da fila (para entregar os eventos).
 # ---------------------------------------------------------------------------
 
 output "topic_arn" {
@@ -33,6 +34,13 @@ resource "aws_ssm_parameter" "queue_url" {
   name  = "/oficina/messaging/${var.service_name}/queue_url"
   type  = "String"
   value = aws_sqs_queue.inbox.id
+}
+
+# A infra do Billing e do Execution assina os próprios tópicos nesta fila.
+resource "aws_ssm_parameter" "queue_arn" {
+  name  = "/oficina/messaging/${var.service_name}/queue_arn"
+  type  = "String"
+  value = aws_sqs_queue.inbox.arn
 }
 
 resource "aws_ssm_parameter" "irsa_role_arn" {
