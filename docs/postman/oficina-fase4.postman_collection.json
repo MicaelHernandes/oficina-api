@@ -1,0 +1,2767 @@
+{
+  "info": {
+    "_postman_id": "44ab3ac6-d087-5050-a2ba-715af89883b4",
+    "name": "Oficina — Fase 4 (saga entre OS, Billing e Execution)",
+    "description": "Fluxo completo da OS pelos três microsserviços, no roteiro da demonstração.\n\n**Como rodar:** importe também o environment `oficina-prod.postman_environment.json`, preencha os tokens e rode cada pasta no **Collection Runner**, em ordem, começando por `00 · Preparação`. Os requests `Saga: aguarda …` repetem sozinhos (a cada 2 s, até 20 vezes) enquanto os serviços respondem pela mensageria (SNS/SQS).\n\n- OS Service (`/api`): token Sanctum do atendente (login na pasta 00).\n- Billing (`/billing/api`): `billing_internal_token` = Secrets Manager `/oficina/billing/internal-token`.\n- Execution (`/execution/api`): `execution_api_token` = Secrets Manager `/oficina/execution/api-token`.\n\nPré-requisito: saga ligada (`SAGA_ENABLED=true`) e o OS Service assinando os tópicos do Billing e do Execution (`consumed_topics`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{staff_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "00 · Preparação",
+      "description": "Login do atendente e cadastro de cliente, veículo, serviço e peça usados nos fluxos.",
+      "item": [
+        {
+          "name": "Login do atendente (staff)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{staff_email}}\",\n  \"password\": \"{{staff_password}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('staff_token', pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cadastrar cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Cliente Demo Fase 4\",\n  \"document\": \"{{cpf}}\",\n  \"email\": \"cliente.demo+{{cpf}}@oficina.test\",\n  \"phone\": \"11999990000\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// CPF válido aleatório (o documento é único).",
+                  "const d = Array.from({length: 9}, () => Math.floor(Math.random() * 10));",
+                  "const dv = (arr) => { const s = arr.reduce((acc, n, i) => acc + n * (arr.length + 1 - i), 0) % 11; return s < 2 ? 0 : 11 - s; };",
+                  "d.push(dv(d)); d.push(dv(d));",
+                  "pm.collectionVariables.set('cpf', d.join(''));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('customer_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cadastrar veículo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/customers/{{customer_id}}/vehicles",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plate\": \"{{plate}}\",\n  \"brand\": \"Fiat\",\n  \"model\": \"Argo\",\n  \"year\": 2023,\n  \"color\": \"Branco\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const L = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));",
+                  "const N = () => Math.floor(Math.random() * 10);",
+                  "pm.collectionVariables.set('plate', `${L()}${L()}${L()}${N()}${L()}${N()}${N()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('vehicle_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cadastrar serviço (R$ 200,00)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/services",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Revisão de freios\",\n  \"base_price\": 200.0,\n  \"estimated_minutes\": 60\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('service_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cadastrar peça (R$ 50,00, 10 em estoque)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/parts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{part_code}}\",\n  \"name\": \"Pastilha de freio\",\n  \"unit_price\": 50.0,\n  \"stock_quantity\": 10,\n  \"minimum_stock\": 1,\n  \"unit\": \"un\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('part_code', 'PAST-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('part_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 · Caminho feliz: abertura até a entrega",
+      "description": "OS → orçamento (Billing) → aprovação do cliente → pagamento → reserva de peças → execução (Execution) → entrega.",
+      "item": [
+        {
+          "name": "Estoque antes do orçamento",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/parts/{{part_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json().data.stock_quantity;",
+                  "pm.collectionVariables.set('stock_before', s);",
+                  "pm.collectionVariables.set('stock_reserved', s - 2);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Abrir OS (atendente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{correlation_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services",
+            "description": "Abre a OS e inicia a saga (estado `diagnosis`). O header `X-Request-Id` é o correlation id de todo o fluxo distribuído.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"vehicle_id\": \"{{vehicle_id}}\",\n  \"complaint\": \"Freio rangendo\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// O X-Request-Id da abertura vira o correlation_id da saga: use-o no Loki/Grafana.",
+                  "pm.collectionVariables.set('correlation_id', 'demo-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const os = pm.response.json().data;",
+                  "pm.collectionVariables.set('os_id', os.id);",
+                  "pm.test('OS criada', () => pm.expect(os.status).to.eql('created'));",
+                  "console.log('OS #' + os.id + ' correlation_id=' + pm.collectionVariables.get('correlation_id'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Enviar para diagnóstico (mecânico)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/send-to-analysis"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('em análise', () => pm.expect(pm.response.json().data.status).to.eql('in_analysis'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gerar orçamento (1 serviço + 2 peças)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/generate-budget",
+            "description": "Monta o orçamento com os preços do catálogo e envia `billing.budget.generate` ao Billing (outbox → SNS).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"services\": [\n    {\n      \"service_id\": \"{{service_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"parts\": [\n    {\n      \"part_id\": \"{{part_id}}\",\n      \"quantity\": 2\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('pendente de aprovação', () => pm.expect(pm.response.json().data.status).to.eql('pending_approval'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_approval`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_approval` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_approval'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_approval (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_approval', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: orçamento e links assinados (interno)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "description": "Orçamento gerado pelo Billing (DynamoDB). Traz os mesmos links assinados enviados ao cliente por e-mail.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const b = pm.response.code === 200 ? pm.response.json().data.budgets.find(x => x.status === 'pending') : null; if (b) { pm.collectionVariables.set('approve_url', b.links.approve); pm.collectionVariables.set('reject_url', b.links.reject); pm.collectionVariables.set('cancel_url', b.links.cancel); pm.collectionVariables.set('budget_id', b.id); } return !!b; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: orçamento pendente no Billing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('orçamento pendente no Billing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cliente aprova o orçamento (link do e-mail)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{approve_url}}",
+            "description": "Link assinado do e-mail do cliente (sem autenticação).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('orçamento approved', () => pm.expect(pm.response.json().data.status).to.eql('approved'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_payment`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_payment` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_payment'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_payment (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_payment', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: cobrança criada (interno)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "description": "Cobrança criada no Mercado Pago (ou no checkout simulado). Com o Mercado Pago real, abra `checkout_url` no navegador, pague com o cartão de teste (titular APRO) e pule para o próximo 'Saga: aguarda'.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const p = pm.response.code === 200 ? pm.response.json().data.payments.find(x => x.status === 'pending') : null; if (p) { pm.collectionVariables.set('checkout_url', p.checkout_url); pm.collectionVariables.set('payment_id', p.id); } return !!p; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: cobrança pendente no Billing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('cobrança pendente no Billing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Checkout simulado: abrir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{checkout_url}}",
+            "description": "Só existe com `PAYMENT_DRIVER=fake` (sem credenciais do Mercado Pago).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('pay_url', pm.response.json().pay_url);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Checkout simulado: pagamento aprovado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{pay_url}}",
+            "description": "Mesmo efeito do webhook do Mercado Pago: o Billing publica `billing.payment.confirmed` ou `billing.payment.failed`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('cobrança approved', () => pm.expect(pm.response.json().data.status).to.eql('approved'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_execution`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_execution` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_execution'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_execution (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_execution', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estoque da peça",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/parts/{{part_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const stock = pm.response.json().data.stock_quantity;",
+                  "const expected = Number(pm.collectionVariables.get('stock_reserved'));",
+                  "pm.test(`estoque = ${expected}`, () => pm.expect(stock).to.eql(expected));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Execution: OS na fila",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs?status=queued&per_page=100",
+            "description": "Fila de execução (PostgreSQL próprio do Execution), maior prioridade e mais antigas primeiro.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const os = Number(pm.collectionVariables.get('os_id')); const j = pm.response.code === 200 ? pm.response.json().data.find(x => x.os_id === os) : null; if (j) pm.collectionVariables.set('job_id', j.id); return !!j; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: OS na fila do Execution (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('OS na fila do Execution', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mecânico inicia o diagnóstico",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs/{{job_id}}/start-diagnosis",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Disco e pastilhas gastos\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('execução diagnosing', () => pm.expect(pm.response.json().data.status).to.eql('diagnosing'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `executing`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `executing` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'executing'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em executing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em executing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mecânico inicia o reparo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs/{{job_id}}/start-repair",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Troca das pastilhas\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('execução repairing', () => pm.expect(pm.response.json().data.status).to.eql('repairing'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Anotação na linha do tempo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs/{{job_id}}/notes",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Teste de rodagem ok\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mecânico finaliza a execução",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs/{{job_id}}/finish",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Veículo pronto\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('execução finished', () => pm.expect(pm.response.json().data.status).to.eql('finished'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `completed`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `completed` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'completed'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em completed (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em completed', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Entregar o veículo (atendente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/deliver"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('entregue', () => pm.expect(pm.response.json().data.status).to.eql('delivered_and_finalized'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rastreamento: histórico da saga",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Estados e motivos de cada passo. Filtre os logs por `correlation_id` no Loki para ver os três serviços."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('mesmo correlation id da abertura', () => pm.expect(pm.response.json().data.correlation_id).to.eql(pm.collectionVariables.get('correlation_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rastreamento: linha do tempo da execução",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs/{{job_id}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 · Compensação: falha na execução",
+      "description": "Depois do pagamento, a execução falha: a saga devolve as peças, pede o estorno ao Billing e cancela a OS.",
+      "item": [
+        {
+          "name": "Estoque antes do orçamento",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/parts/{{part_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json().data.stock_quantity;",
+                  "pm.collectionVariables.set('stock_before', s);",
+                  "pm.collectionVariables.set('stock_reserved', s - 2);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Abrir OS (atendente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{correlation_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services",
+            "description": "Abre a OS e inicia a saga (estado `diagnosis`). O header `X-Request-Id` é o correlation id de todo o fluxo distribuído.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"vehicle_id\": \"{{vehicle_id}}\",\n  \"complaint\": \"Barulho na suspensão\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// O X-Request-Id da abertura vira o correlation_id da saga: use-o no Loki/Grafana.",
+                  "pm.collectionVariables.set('correlation_id', 'demo-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const os = pm.response.json().data;",
+                  "pm.collectionVariables.set('os_id', os.id);",
+                  "pm.test('OS criada', () => pm.expect(os.status).to.eql('created'));",
+                  "console.log('OS #' + os.id + ' correlation_id=' + pm.collectionVariables.get('correlation_id'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Enviar para diagnóstico (mecânico)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/send-to-analysis"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('em análise', () => pm.expect(pm.response.json().data.status).to.eql('in_analysis'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gerar orçamento (1 serviço + 2 peças)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/generate-budget",
+            "description": "Monta o orçamento com os preços do catálogo e envia `billing.budget.generate` ao Billing (outbox → SNS).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"services\": [\n    {\n      \"service_id\": \"{{service_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"parts\": [\n    {\n      \"part_id\": \"{{part_id}}\",\n      \"quantity\": 2\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('pendente de aprovação', () => pm.expect(pm.response.json().data.status).to.eql('pending_approval'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_approval`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_approval` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_approval'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_approval (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_approval', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: orçamento e links assinados (interno)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "description": "Orçamento gerado pelo Billing (DynamoDB). Traz os mesmos links assinados enviados ao cliente por e-mail.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const b = pm.response.code === 200 ? pm.response.json().data.budgets.find(x => x.status === 'pending') : null; if (b) { pm.collectionVariables.set('approve_url', b.links.approve); pm.collectionVariables.set('reject_url', b.links.reject); pm.collectionVariables.set('cancel_url', b.links.cancel); pm.collectionVariables.set('budget_id', b.id); } return !!b; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: orçamento pendente no Billing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('orçamento pendente no Billing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cliente aprova o orçamento (link do e-mail)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{approve_url}}",
+            "description": "Link assinado do e-mail do cliente (sem autenticação).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('orçamento approved', () => pm.expect(pm.response.json().data.status).to.eql('approved'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_payment`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_payment` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_payment'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_payment (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_payment', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: cobrança criada (interno)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "description": "Cobrança criada no Mercado Pago (ou no checkout simulado). Com o Mercado Pago real, abra `checkout_url` no navegador, pague com o cartão de teste (titular APRO) e pule para o próximo 'Saga: aguarda'.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const p = pm.response.code === 200 ? pm.response.json().data.payments.find(x => x.status === 'pending') : null; if (p) { pm.collectionVariables.set('checkout_url', p.checkout_url); pm.collectionVariables.set('payment_id', p.id); } return !!p; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: cobrança pendente no Billing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('cobrança pendente no Billing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Checkout simulado: abrir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{checkout_url}}",
+            "description": "Só existe com `PAYMENT_DRIVER=fake` (sem credenciais do Mercado Pago).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('pay_url', pm.response.json().pay_url);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Checkout simulado: pagamento aprovado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{pay_url}}",
+            "description": "Mesmo efeito do webhook do Mercado Pago: o Billing publica `billing.payment.confirmed` ou `billing.payment.failed`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('cobrança approved', () => pm.expect(pm.response.json().data.status).to.eql('approved'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_execution`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_execution` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_execution'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_execution (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_execution', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Execution: OS na fila",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs?status=queued&per_page=100",
+            "description": "Fila de execução (PostgreSQL próprio do Execution), maior prioridade e mais antigas primeiro.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const os = Number(pm.collectionVariables.get('os_id')); const j = pm.response.code === 200 ? pm.response.json().data.find(x => x.os_id === os) : null; if (j) pm.collectionVariables.set('job_id', j.id); return !!j; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: OS na fila do Execution (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('OS na fila do Execution', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mecânico inicia o diagnóstico",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs/{{job_id}}/start-diagnosis",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('execução diagnosing', () => pm.expect(pm.response.json().data.status).to.eql('diagnosing'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Execução falha (compensação)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/execution/api/jobs/{{job_id}}/fail",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Elevador hidráulico quebrado\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{execution_api_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('execução failed', () => pm.expect(pm.response.json().data.status).to.eql('failed'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `compensated`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `compensated` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'compensated'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em compensated (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em compensated', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estoque da peça",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/parts/{{part_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const stock = pm.response.json().data.stock_quantity;",
+                  "const expected = Number(pm.collectionVariables.get('stock_before'));",
+                  "pm.test(`estoque = ${expected}`, () => pm.expect(stock).to.eql(expected));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: cobrança estornada",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('estornada', () => pm.expect(pm.response.json().data.payments[0].status).to.eql('refunded'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "OS cancelada",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('rejected', () => pm.expect(pm.response.json().data.status).to.eql('rejected'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 · Compensação: pagamento recusado",
+      "description": "O pagamento é recusado: a saga cancela o orçamento e a OS, sem tocar no estoque.",
+      "item": [
+        {
+          "name": "Estoque antes do orçamento",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/parts/{{part_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json().data.stock_quantity;",
+                  "pm.collectionVariables.set('stock_before', s);",
+                  "pm.collectionVariables.set('stock_reserved', s - 2);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Abrir OS (atendente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{correlation_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services",
+            "description": "Abre a OS e inicia a saga (estado `diagnosis`). O header `X-Request-Id` é o correlation id de todo o fluxo distribuído.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"vehicle_id\": \"{{vehicle_id}}\",\n  \"complaint\": \"Revisão geral\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// O X-Request-Id da abertura vira o correlation_id da saga: use-o no Loki/Grafana.",
+                  "pm.collectionVariables.set('correlation_id', 'demo-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const os = pm.response.json().data;",
+                  "pm.collectionVariables.set('os_id', os.id);",
+                  "pm.test('OS criada', () => pm.expect(os.status).to.eql('created'));",
+                  "console.log('OS #' + os.id + ' correlation_id=' + pm.collectionVariables.get('correlation_id'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Enviar para diagnóstico (mecânico)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/send-to-analysis"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('em análise', () => pm.expect(pm.response.json().data.status).to.eql('in_analysis'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gerar orçamento (1 serviço + 2 peças)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/generate-budget",
+            "description": "Monta o orçamento com os preços do catálogo e envia `billing.budget.generate` ao Billing (outbox → SNS).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"services\": [\n    {\n      \"service_id\": \"{{service_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"parts\": [\n    {\n      \"part_id\": \"{{part_id}}\",\n      \"quantity\": 2\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('pendente de aprovação', () => pm.expect(pm.response.json().data.status).to.eql('pending_approval'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_approval`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_approval` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_approval'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_approval (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_approval', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: orçamento e links assinados (interno)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "description": "Orçamento gerado pelo Billing (DynamoDB). Traz os mesmos links assinados enviados ao cliente por e-mail.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const b = pm.response.code === 200 ? pm.response.json().data.budgets.find(x => x.status === 'pending') : null; if (b) { pm.collectionVariables.set('approve_url', b.links.approve); pm.collectionVariables.set('reject_url', b.links.reject); pm.collectionVariables.set('cancel_url', b.links.cancel); pm.collectionVariables.set('budget_id', b.id); } return !!b; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: orçamento pendente no Billing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('orçamento pendente no Billing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cliente aprova o orçamento (link do e-mail)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{approve_url}}",
+            "description": "Link assinado do e-mail do cliente (sem autenticação).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('orçamento approved', () => pm.expect(pm.response.json().data.status).to.eql('approved'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_payment`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_payment` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_payment'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_payment (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_payment', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: cobrança criada (interno)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "description": "Cobrança criada no Mercado Pago (ou no checkout simulado). Com o Mercado Pago real, abra `checkout_url` no navegador, pague com o cartão de teste (titular APRO) e pule para o próximo 'Saga: aguarda'.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const p = pm.response.code === 200 ? pm.response.json().data.payments.find(x => x.status === 'pending') : null; if (p) { pm.collectionVariables.set('checkout_url', p.checkout_url); pm.collectionVariables.set('payment_id', p.id); } return !!p; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: cobrança pendente no Billing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('cobrança pendente no Billing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Checkout simulado: abrir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{checkout_url}}",
+            "description": "Só existe com `PAYMENT_DRIVER=fake` (sem credenciais do Mercado Pago).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('pay_url', pm.response.json().pay_url);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Checkout simulado: pagamento recusado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{pay_url}}",
+            "description": "Mesmo efeito do webhook do Mercado Pago: o Billing publica `billing.payment.confirmed` ou `billing.payment.failed`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"rejected\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('cobrança rejected', () => pm.expect(pm.response.json().data.status).to.eql('rejected'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `compensated`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `compensated` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'compensated'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em compensated (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em compensated', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estoque da peça",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/parts/{{part_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const stock = pm.response.json().data.stock_quantity;",
+                  "const expected = Number(pm.collectionVariables.get('stock_before'));",
+                  "pm.test(`estoque = ${expected}`, () => pm.expect(stock).to.eql(expected));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "OS cancelada",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('rejected', () => pm.expect(pm.response.json().data.status).to.eql('rejected'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 · Renegociação e desistência",
+      "description": "Cliente pede nova proposta (nova revisão do orçamento) e depois desiste da OS.",
+      "item": [
+        {
+          "name": "Abrir OS (atendente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{correlation_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services",
+            "description": "Abre a OS e inicia a saga (estado `diagnosis`). O header `X-Request-Id` é o correlation id de todo o fluxo distribuído.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"vehicle_id\": \"{{vehicle_id}}\",\n  \"complaint\": \"Ar-condicionado sem gelar\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// O X-Request-Id da abertura vira o correlation_id da saga: use-o no Loki/Grafana.",
+                  "pm.collectionVariables.set('correlation_id', 'demo-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const os = pm.response.json().data;",
+                  "pm.collectionVariables.set('os_id', os.id);",
+                  "pm.test('OS criada', () => pm.expect(os.status).to.eql('created'));",
+                  "console.log('OS #' + os.id + ' correlation_id=' + pm.collectionVariables.get('correlation_id'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Enviar para diagnóstico (mecânico)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/send-to-analysis"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('em análise', () => pm.expect(pm.response.json().data.status).to.eql('in_analysis'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gerar orçamento (1 serviço + 2 peças)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/generate-budget",
+            "description": "Monta o orçamento com os preços do catálogo e envia `billing.budget.generate` ao Billing (outbox → SNS).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"services\": [\n    {\n      \"service_id\": \"{{service_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"parts\": [\n    {\n      \"part_id\": \"{{part_id}}\",\n      \"quantity\": 2\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('pendente de aprovação', () => pm.expect(pm.response.json().data.status).to.eql('pending_approval'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_approval`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_approval` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_approval'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_approval (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_approval', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: orçamento e links assinados (interno)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "description": "Orçamento gerado pelo Billing (DynamoDB). Traz os mesmos links assinados enviados ao cliente por e-mail.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const b = pm.response.code === 200 ? pm.response.json().data.budgets.find(x => x.status === 'pending') : null; if (b) { pm.collectionVariables.set('approve_url', b.links.approve); pm.collectionVariables.set('reject_url', b.links.reject); pm.collectionVariables.set('cancel_url', b.links.cancel); pm.collectionVariables.set('budget_id', b.id); } return !!b; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: orçamento pendente no Billing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('orçamento pendente no Billing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cliente recusa e pede nova proposta",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{reject_url}}",
+            "description": "Link assinado do e-mail do cliente (sem autenticação).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('orçamento rejected', () => pm.expect(pm.response.json().data.status).to.eql('rejected'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `diagnosis`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `diagnosis` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'diagnosis'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em diagnosis (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em diagnosis', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gerar orçamento (1 serviço + 1 peças)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/generate-budget",
+            "description": "Monta o orçamento com os preços do catálogo e envia `billing.budget.generate` ao Billing (outbox → SNS).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"services\": [\n    {\n      \"service_id\": \"{{service_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"parts\": [\n    {\n      \"part_id\": \"{{part_id}}\",\n      \"quantity\": 1\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('pendente de aprovação', () => pm.expect(pm.response.json().data.status).to.eql('pending_approval'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `awaiting_approval`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `awaiting_approval` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'awaiting_approval'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em awaiting_approval (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em awaiting_approval', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing: orçamento e links assinados (interno)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/billing/api/order-services/{{os_id}}",
+            "description": "Orçamento gerado pelo Billing (DynamoDB). Traz os mesmos links assinados enviados ao cliente por e-mail.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{billing_internal_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { const b = pm.response.code === 200 ? pm.response.json().data.budgets.find(x => x.status === 'pending') : null; if (b) { pm.collectionVariables.set('approve_url', b.links.approve); pm.collectionVariables.set('reject_url', b.links.reject); pm.collectionVariables.set('cancel_url', b.links.cancel); pm.collectionVariables.set('budget_id', b.id); } return !!b; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: orçamento pendente no Billing (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('orçamento pendente no Billing', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cliente recusa de vez (cancela a OS)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{cancel_url}}",
+            "description": "Link assinado do e-mail do cliente (sem autenticação).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('orçamento rejected', () => pm.expect(pm.response.json().data.status).to.eql('rejected'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Saga: aguarda `cancelled`",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/order-services/{{os_id}}/saga",
+            "description": "Consulta o estado da saga até chegar em `cancelled` (os outros serviços respondem de forma assíncrona via SNS/SQS). No Collection Runner o request se repete sozinho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = (() => { return pm.response.code === 200 && pm.response.json().data.state === 'cancelled'; })();",
+                  "const key = 'poll_' + pm.info.requestName;",
+                  "const tries = Number(pm.collectionVariables.get(key) || 0);",
+                  "if (!ok && tries < 20) {",
+                  "    pm.collectionVariables.set(key, tries + 1);",
+                  "    console.log(`aguardando: saga em cancelled (tentativa ${tries + 1})`);",
+                  "    setTimeout(() => {}, 2000);",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset(key);",
+                  "    pm.test('saga em cancelled', () => pm.expect(ok, 'condição não atingida após 20 tentativas').to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "staff_token",
+      "value": ""
+    },
+    {
+      "key": "cpf",
+      "value": ""
+    },
+    {
+      "key": "plate",
+      "value": ""
+    },
+    {
+      "key": "part_code",
+      "value": ""
+    },
+    {
+      "key": "customer_id",
+      "value": ""
+    },
+    {
+      "key": "vehicle_id",
+      "value": ""
+    },
+    {
+      "key": "service_id",
+      "value": ""
+    },
+    {
+      "key": "part_id",
+      "value": ""
+    },
+    {
+      "key": "os_id",
+      "value": ""
+    },
+    {
+      "key": "correlation_id",
+      "value": ""
+    },
+    {
+      "key": "budget_id",
+      "value": ""
+    },
+    {
+      "key": "approve_url",
+      "value": ""
+    },
+    {
+      "key": "reject_url",
+      "value": ""
+    },
+    {
+      "key": "cancel_url",
+      "value": ""
+    },
+    {
+      "key": "payment_id",
+      "value": ""
+    },
+    {
+      "key": "checkout_url",
+      "value": ""
+    },
+    {
+      "key": "pay_url",
+      "value": ""
+    },
+    {
+      "key": "job_id",
+      "value": ""
+    },
+    {
+      "key": "stock_before",
+      "value": ""
+    },
+    {
+      "key": "stock_reserved",
+      "value": ""
+    }
+  ]
+}

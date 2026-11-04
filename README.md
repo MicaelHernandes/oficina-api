@@ -83,6 +83,26 @@ O OS Service roda de verdade: HTTP, orquestrador, outbox e Postgres. O Billing e
 
 **Ativação:** `SAGA_ENABLED=false` mantém o fluxo local da Fase 3 até o Billing e o Execution estarem no ar. Com a saga ligada, aprovação e recusa do orçamento e início e fim da execução chegam por evento, e as rotas locais dessas etapas respondem 422. Para receber os eventos, inclua os tópicos dos outros serviços em `consumed_topics` (`infra/`).
 
+## Collection Postman (demonstração)
+
+[`docs/postman/oficina-fase4.postman_collection.json`](docs/postman/oficina-fase4.postman_collection.json) cobre o fluxo completo da OS pelos três serviços, no roteiro do vídeo. O environment fica em [`docs/postman/oficina-prod.postman_environment.json`](docs/postman/oficina-prod.postman_environment.json). As pastas são:
+
+| Pasta | Fluxo |
+|---|---|
+| `00 · Preparação` | Login do atendente; cliente (CPF aleatório válido), veículo, serviço e peça |
+| `01 · Caminho feliz` | OS → orçamento (Billing) → aprovação pelo link do cliente → pagamento → reserva de peças → diagnóstico/reparo/fim (Execution) → entrega → histórico da saga |
+| `02 · Compensação: falha na execução` | Peças devolvidas, estorno no Billing, OS cancelada |
+| `03 · Compensação: pagamento recusado` | Orçamento e OS cancelados, estoque intacto |
+| `04 · Renegociação e desistência` | Nova revisão do orçamento e cancelamento definitivo |
+
+Como rodar:
+
+- Rode cada pasta no **Collection Runner**, em ordem. Os requests `Saga: aguarda …` se repetem a cada 2 s, até 20 vezes, enquanto os serviços respondem pela mensageria.
+- Preencha no environment a senha do atendente, `billing_internal_token` (`/oficina/billing/internal-token`) e `execution_api_token` (`/oficina/execution/api-token`).
+- Com o Mercado Pago real, abra o `checkout_url` no navegador e pague com o cartão de teste (titular **APRO**), em vez de usar o checkout simulado.
+
+O Swagger de cada serviço continua em `/api/documentation`, `/billing/api/documentation` e `/execution/api/documentation`.
+
 ## Documentação
 
 - **ADRs** — [`docs/adr`](docs/adr): comunicação REST+JSON, HPA, observabilidade (Prometheus vs Datadog/New Relic), ambiente único, saga orquestrada com SNS/SQS.
