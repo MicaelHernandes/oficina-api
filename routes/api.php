@@ -8,6 +8,7 @@ use Domain\Customer\Presentation\Controllers\CustomerPortalController;
 use Domain\Customer\Presentation\Controllers\VehicleController;
 use Domain\Inventory\Presentation\Controllers\PartRequestController;
 use Domain\Reports\Presentation\Controllers\ReportController;
+use Domain\Saga\Presentation\Controllers\SagaController;
 use Domain\Workshop\Presentation\Controllers\OrderServiceController;
 use Domain\Workshop\Presentation\Controllers\PublicBudgetApprovalController;
 use Domain\Workshop\Presentation\Controllers\PublicOsTrackingController;
@@ -91,6 +92,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('order-services/{id}/start-execution', [OrderServiceController::class, 'startExecution']);
     Route::post('order-services/{id}/finish-execution', [OrderServiceController::class, 'finishExecution']);
     Route::post('order-services/{id}/deliver', [OrderServiceController::class, 'deliver']);
+
+    // Saga — estado e histórico do fluxo distribuído da OS
+    Route::get('order-services/{id}/saga', [SagaController::class, 'show']);
 
     // Reports
     Route::prefix('reports')->group(function () {
