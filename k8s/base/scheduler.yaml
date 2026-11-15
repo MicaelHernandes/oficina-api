@@ -31,6 +31,10 @@ spec:
                 name: oficina-app-config
             - secretRef:
                 name: oficina-app-secrets
+            # Tópico/fila da saga, criado pela pipeline a partir do SSM (infra/).
+            - configMapRef:
+                name: oficina-messaging
+                optional: true
           resources:
             requests:
               cpu: "50m"

@@ -37,11 +37,14 @@ enum OsStatus: string
         return match ($this) {
             self::Created => [self::InAnalysis],
             self::InAnalysis => [self::PendingApproval],
-            self::PendingApproval => [self::Approved, self::InRenegotiation],
+            // → Rejected a partir de PendingApproval/Approved/InExecution: cancelamento
+            // pela saga (recusa definitiva, pagamento recusado, falta de peças ou
+            // falha na execução, com compensação).
+            self::PendingApproval => [self::Approved, self::InRenegotiation, self::Rejected],
             self::InRenegotiation => [self::Approved, self::Rejected, self::PendingApproval],
-            self::Approved => [self::InExecution],
+            self::Approved => [self::InExecution, self::Rejected],
             self::Rejected => [],
-            self::InExecution => [self::ExecutionFinished],
+            self::InExecution => [self::ExecutionFinished, self::Rejected],
             self::ExecutionFinished => [self::DeliveredAndFinalized],
             self::DeliveredAndFinalized => [],
         };
